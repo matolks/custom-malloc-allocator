@@ -1,4 +1,4 @@
-# Intentially exluded since the repo focuses on the allocator implementation (mm.c).
+# Excluded because this repository focuses on the allocator implementation (mm.c).
 traces/
 calibrate.pl
 driver.pl
