@@ -1,0 +1,41 @@
+# Intentially exluded since the repo focuses on the allocator implementation (mm.c).
+traces/
+calibrate.pl
+driver.pl
+global_check.sh
+macro-check.pl
+Makefile
+mdriver
+mdriver-ref
+mdriver.c
+memlib.c
+memlib.h
+clock.c
+clock.h
+fcyc.c
+fcyc.h
+config.h
+stree.c
+stree.h
+throughputs.txt
+Vagrantfile
+
+# Build outputs
+*.o
+*.d
+*.out
+a.out
+tput_*
+
+# Logs and temp files
+*.log
+*~
+
+# Editor/system files
+.DS_Store
+.vscode/
+.idea/
+
+# Vagrant files
+.vagrant/
+callibrate.pl
