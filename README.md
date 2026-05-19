@@ -30,11 +30,11 @@ The heap also uses a prologue and epilogue block to simplify boundary handling d
 
 ## Performance
 
-The allocator was tested with a trace driven memory allocation harness.
+The allocator was tested using a local benchmarking and validation harness.
 
 | Metric | Result |
 |---|---:|
-| Correctness | Passed all tested traces |
+| Correctness | Passed local validation tests |
 | Average utilization | 60.6% |
 | Average throughput | 6898 Kops/sec |
 
