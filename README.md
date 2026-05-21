@@ -70,7 +70,7 @@ Allocates space for an array and initializes the payload to zero. Includes an ov
 ## Heap Checker
 
 ### `mm_checkheap(int line_number)`
-Checks heap and free-list consistency during debugging. It validates alignment, heap bounds, header/footer agreement, coalescing, free-list links, size-class placement, and free-block counts.
+Checks heap and free-list consistency during debugging. It validates alignment, heap bounds, header/footer agreement, coalescing, free-list links, size class placement, and free-block counts.
 
 ## Core Helper Functions
 
@@ -95,10 +95,10 @@ Writes the header and footer for a block.
 Maps a block size to the correct segregated free-list class.
 
 ### `insert_free_block(blockp)`
-Inserts a free block into its size-class free list.
+Inserts a free block into its size class free list.
 
 ### `remove_free_block(blockp)`
-Removes a free block from its size-class free list.
+Removes a free block from its size class free list.
 
 ### `next_freep(blockp)` / `prev_freep(blockp)`
 Read the next and previous free-block pointers stored in a free block’s payload.
