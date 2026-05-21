@@ -1,32 +1,35 @@
 # Custom Malloc Allocator
 
-A custom dynamic memory allocator written in C. This project implements `malloc`, `free`, `realloc`, and `calloc` using segregated explicit free lists, block splitting, coalescing, and heap consistency checking.
+A custom dynamic memory allocator that implements `malloc`, `free`, `realloc`, and `calloc` using segregated explicit free lists, block splitting, coalescing, and heap consistency checking.
 
 This repository focuses on the allocator implementation in `mm.c`. Testing traces, driver files, binaries, and build artifacts are intentionally excluded.
 
 ## Overview
 
-The allocator manages heap memory manually by storing metadata in each block.
+This allocator manages heap memory manually using block metadata and segregated free lists. Each block stores its size and allocation status in a header and footer, which allows the allocator to move between neighboring blocks and coalesce free space.
 
 ```text
 [ Header ][ Payload ][ Footer ]
 ```
 
-Free blocks use their payload space to store pointers for the explicit free list.
+Free blocks reuse their payload area to store free-list pointers.
 
 ```text
 [ Header ][ Prev Free Ptr ][ Next Free Ptr ][ Free Space ][ Footer ]
 ```
 
-The heap also uses a prologue and epilogue block to simplify boundary handling during coalescing.
+Allocation requests are adjusted for metadata and 16-byte alignment. The allocator searches the appropriate size class for a fitting block, splits larger blocks when useful, coalesces adjacent free blocks when memory is released, and extends the heap when no fit is available.
+
+The heap also uses prologue and epilogue blocks to simplify boundary cases during coalescing.
 
 ## Allocation Strategy
 
-- Uses segregated explicit free lists to organize free blocks by size class
-- Splits larger free blocks when only part of the block is needed
-- Coalesces adjacent free blocks to reduce fragmentation
-- Extends the heap when no suitable free block is available
-- Includes a heap checker to validate allocator consistency during debugging
+- Segregated explicit free lists organize free blocks by size class
+- Best-fit search is used within size classes
+- Larger free blocks are split when the remainder can form a valid block
+- Adjacent free blocks are coalesced to reduce fragmentation
+- The heap extends when no existing free block can satisfy a request
+- A debug heap checker validates allocator consistency
 
 ## Performance
 
@@ -50,86 +53,58 @@ README.md   Project documentation
 ## Main Functions
 
 ### `mm_init(void)`
-
-Initializes the allocator before any allocation requests are handled.
-
-This function clears the segregated free list array, creates the initial heap structure, writes the prologue and epilogue blocks, and extends the heap with an initial free block. The prologue and epilogue simplify boundary cases when blocks are coalesced.
+Initializes the allocator, clears the free lists, creates the initial heap structure, and extends the heap with the first free block.
 
 ### `malloc(size_t size)`
-
-Allocates a block of at least `size` bytes and returns a pointer to the usable payload.
-
-The requested size is adjusted to include allocator metadata and alignment requirements. The allocator then searches the segregated free lists for a suitable block. If a fit is found, the block is placed and split if enough unused space remains. If no fit exists, the heap is extended.
+Allocates a block of at least `size` bytes after adjusting the request for metadata and alignment.
 
 ### `free(void *ptr)`
-
-Releases a previously allocated block back to the allocator.
-
-The block is marked as free, neighboring free blocks are merged when possible, and the resulting block is inserted into the appropriate segregated free list. This reduces external fragmentation and keeps future allocation searches efficient.
+Releases a block, coalesces it with adjacent free blocks when possible, and returns it to the proper free list.
 
 ### `realloc(void *oldptr, size_t size)`
-
-Resizes an existing allocation while preserving its payload contents.
-
-If the block can be resized in place, the allocator reuses the existing block. Otherwise, it allocates a new block, copies the old payload up to the smaller of the old and new sizes, frees the old block, and returns the new pointer.
+Resizes an allocation while preserving existing payload data. The allocator tries to reuse or expand the current block before allocating a new one.
 
 ### `calloc(size_t nmemb, size_t size)`
-
-Allocates memory for an array and initializes the result to zero.
-
-The function first checks for multiplication overflow in `nmemb * size`. If the request is valid, it allocates the required memory using `malloc` and clears the allocated payload.
+Allocates space for an array and initializes the payload to zero. Includes an overflow check before computing the total size.
 
 ## Heap Checker
 
 ### `mm_checkheap(int line_number)`
-
-Validates heap and free list consistency during debugging.
-
-The checker verifies alignment, heap bounds, header/footer consistency, coalescing correctness, free list pointer integrity, size class placement, and agreement between free blocks in the heap and free blocks reachable from the segregated free lists.
+Checks heap and free-list consistency during debugging. It validates alignment, heap bounds, header/footer agreement, coalescing, free-list links, size-class placement, and free-block counts.
 
 ## Core Helper Functions
 
 ### `extend_heap(size)`
-
-Requests additional heap space, initializes it as a free block, writes a new epilogue block, coalesces with the previous block if possible, and inserts the resulting free block into the proper size class.
+Requests more heap space, creates a new free block, writes a new epilogue, coalesces if possible, and inserts the block into a free list.
 
 ### `coalesce(blockp)`
-
-Merges a newly freed block with adjacent free blocks when possible. Any neighboring free blocks are removed from their free lists before the combined block is written back and reinserted.
+Merges a free block with adjacent free blocks when possible.
 
 ### `find_fit(adjusted_size)`
-
-Searches the segregated free lists for a block large enough to satisfy an allocation request. The search starts in the matching size class and moves upward through larger classes if needed.
+Searches the segregated free lists for a suitable block.
 
 ### `place(blockp, adjusted_size)`
-
-Places an allocation inside a selected free block. If the remaining space is large enough to form another valid free block, the function splits the block and reinserts the remainder into the free list.
+Places an allocation inside a selected free block and splits the remainder if it can form a valid free block.
 
 ### `write_block(blockp, size, allocated)`
-
-Writes the header and footer for a block using the given size and allocation status.
+Writes the header and footer for a block.
 
 ## Free List Helper Functions
 
 ### `class_index(size)`
-
-Maps a block size to the correct segregated free list class.
+Maps a block size to the correct segregated free-list class.
 
 ### `insert_free_block(blockp)`
-
-Inserts a free block into its appropriate size class. Smaller blocks are inserted at the front of the list, while larger blocks are kept in address order.
+Inserts a free block into its size-class free list.
 
 ### `remove_free_block(blockp)`
-
-Removes a free block from its segregated free list and updates the surrounding free list pointers.
+Removes a free block from its size-class free list.
 
 ### `next_freep(blockp)` / `prev_freep(blockp)`
-
-Read the next and previous free block pointers stored inside a free block’s payload.
+Read the next and previous free-block pointers stored in a free block’s payload.
 
 ### `set_next_freep(blockp, next)` / `set_prev_freep(blockp, prev)`
-
-Write the next and previous free block pointers inside a free block’s payload.
+Write the next and previous free-block pointers inside a free block’s payload.
 
 ## Utility Helper Functions
 

@@ -1,30 +1,12 @@
 /*
  * Custom Malloc Allocator
  *
- * This allocator uses a segregated explicit free-list design. The heap is made
- * of 16-byte aligned blocks. Each block has an 8-byte header and 8-byte footer
- * storing the block size and allocation bit.
+ * Implements malloc, free, realloc, and calloc using segregated explicit free lists. 
+ * Blocks are 16-byte aligned and store size/allocation metadata in both a header and footer.
  *
- * Allocated block layout:
- *
- *      [ Header | Payload | Footer ]
- *
- * Free block layout:
- *
- *      [ Header | Next free ptr | Prev free ptr | Free space | Footer ]
- *
- * Free blocks are stored in one of NUM_CLASSES segregated free lists based on
- * block size. This improves throughput because malloc searches only the likely
- * size class first instead of scanning every free block in the heap.
- *
- * The allocator uses best-fit search within each size class to reduce
- * fragmentation. Small free blocks are inserted at the front of their list for
- * fast insertion. Larger free blocks are inserted in address order, which helps
- * preserve locality and can improve utilization.
- *
- * Free blocks are coalesced immediately when freed or when the heap is
- * extended. realloc attempts to resize in place when possible, including
- * expanding into the next free block before falling back to malloc/copy/free.
+ * Free blocks use their payload space for next/previous free-list pointers.
+ * The allocator splits large free blocks, coalesces adjacent free blocks, and
+ * uses a best-fit search within size classes to reduce fragmentation.
  */
 
 #include <assert.h>
@@ -101,6 +83,7 @@ static void set_prev_freep(void *blockp, void *prev);
 static void insert_free_block(void *blockp);
 static void remove_free_block(void *blockp);
 
+// Rounds size up to the allocator alignment
 static size_t align(size_t size){
     return DSIZE * ((size + DSIZE - 1)/DSIZE);
 }
@@ -109,13 +92,7 @@ static size_t max_size(size_t a, size_t b){
     return (a > b) ? a : b;
 }
 
-/*
- * Block metadata helpers.
- *
- * The low 4 bits of each header/footer are unused because all block sizes are
- * 16-byte aligned. The allocator uses bit 0 as the allocation flag and masks
- * out the low bits when reading the block size.
- */
+// Packs block size and allocation status into one word
 static size_t pack(size_t size, bool allocated){
     return allocated ? (size | 0x1) : size;
 }
@@ -157,13 +134,7 @@ static void write_block(void *blockp, size_t size, bool allocated) {
     put_word(ftrp(blockp), pack(size, allocated));
 }
 
-/*
- * Maps a block size to a segregated free-list index.
- *
- * Smaller size classes are more granular because many traces allocate small
- * blocks. Larger blocks are grouped into wider ranges to keep the number of
- * global list heads small.
- */
+// Maps a block size to a segregated free-list class
 static int class_index(size_t size){
     if (size <= 32){
         return 0;
@@ -223,13 +194,7 @@ static void set_prev_freep(void *blockp, void *prev){
     *(void**)((char*)blockp + WSIZE) = prev;
 }
 
-/*
- * Inserts a free block into the appropriate segregated free list.
- *
- * Blocks up to 1024 bytes use LIFO insertion to keep free fast. Larger blocks
- * use address-ordered insertion because keeping large free blocks ordered by
- * heap address can reduce fragmentation and improve later coalescing behavior.
- */
+// Inserts a free block into its size-class free list
 static void insert_free_block(void *blockp){
     size_t size = get_size(hdrp(blockp));
     int index = class_index(size);
@@ -261,13 +226,7 @@ static void insert_free_block(void *blockp){
     }
 }
 
-/*
- * Removes a free block from its segregated free list.
- *
- * The block size determines which list contains the block. The next and
- * previous links are cleared after removal to make stale free-list pointers
- * easier to catch while debugging.
- */
+// Removes a free block from its size-class free list
 static void remove_free_block(void *blockp){
     int index = class_index(get_size(hdrp(blockp)));
     void *prev = prev_freep(blockp);
@@ -284,13 +243,7 @@ static void remove_free_block(void *blockp){
     set_prev_freep(blockp, NULL);
 }
 
-/*
- * Extends the heap when no existing free block can satisfy a request.
- *
- * The old epilogue header becomes the header of the new free block. A new
- * epilogue is written after the extended space, then the new block is coalesced
- * with the previous block if possible.
- */
+// Extends the heap and creates a new free block
 static void *extend_heap(size_t size){
     size_t adjusted_size = align(size);
     void *blockp = mm_sbrk(adjusted_size);
@@ -304,13 +257,7 @@ static void *extend_heap(size_t size){
     return blockp;
 }
 
-/*
- * Merges a newly freed block with adjacent free neighbors.
- *
- * Neighboring free blocks are removed from their segregated lists before the
- * merged block is written. The caller is responsible for inserting the final
- * coalesced block back into the correct free list.
- */
+// Merges a free block with adjacent free blocks when possible
 static void *coalesce(void *blockp){
     bool prev_allocated = get_alloc(ftrp(prev_blkp(blockp)));
     bool next_allocated = get_alloc(hdrp(next_blkp(blockp)));
@@ -339,13 +286,7 @@ static void *coalesce(void *blockp){
     return blockp;
 }
 
-/*
- * Finds a block using segregated best-fit search.
- *
- * Search starts in the smallest size class that can hold the request. Within
- * each class, the smallest fitting block is chosen to reduce wasted space. If
- * no block fits, larger size classes are searched.
- */
+// Finds a suitable free block for an adjusted allocation size
 static void *find_fit(size_t adjusted_size){
     int index = class_index(adjusted_size);
     void *best_blockp = NULL;
@@ -372,18 +313,12 @@ static void *find_fit(size_t adjusted_size){
     return NULL;
 }
 
-/*
- * Places an allocated block inside a free block.
- *
- * The free block is removed from its list before modification. If the leftover
- * space is large enough to form a valid free block, the block is split and the
- * remainder is inserted back into the appropriate free list.
- */
+// Places an allocation inside a selected free block
 static void place(void *blockp, size_t adjusted_size){
     size_t block_size = get_size(hdrp(blockp));
     size_t remainder = block_size - adjusted_size;
     remove_free_block(blockp);
-    if (remainder >= MIN_BLOCK_SIZE){
+    if (remainder >= MIN_BLOCK_SIZE){ // Split only if the leftover can hold a valid free block
         write_block(blockp, adjusted_size, true);
         write_block(next_blkp(blockp), remainder, false);
         insert_free_block(next_blkp(blockp));
@@ -396,15 +331,7 @@ static void place(void *blockp, size_t adjusted_size){
 ////// MAIN FUNCTIONS //////
 ////////////////////////////
 
-/*
- * mm_init - Initializes the heap and segregated free lists.
- *
- * The initial heap contains padding, an allocated prologue block, and an
- * allocated epilogue header. The prologue and epilogue simplify boundary cases
- * during coalescing because every normal block has valid neighboring metadata.
- *
- * Returns true on success and false if the heap cannot be extended.
- */
+// Initializes the allocator state and creates the initial heap
 bool mm_init(void){
     void *heap_start = mm_sbrk(4 * WSIZE);
     if (heap_start == (void*)-1){
@@ -424,16 +351,7 @@ bool mm_init(void){
     return true;
 }
 
-/*
- * malloc - Allocates a block with at least size bytes of payload.
- *
- * The requested size is rounded up to include header/footer overhead and
- * maintain 16-byte alignment. The allocator first searches the segregated free
- * lists for a fitting block. If no fit exists, the heap is extended and the new
- * free block is placed.
- *
- * Returns NULL for size 0 or if the heap cannot be extended.
- */
+// Allocates a block large enough for the requested payload
 void *malloc(size_t size){
     size_t adjusted_size;
     size_t extend_size;
@@ -456,13 +374,7 @@ void *malloc(size_t size){
     return blockp;
 }
 
-/*
- * free - Marks a block as free and makes it available for reuse.
- *
- * The block is written as free, immediately coalesced with adjacent free
- * blocks, and then inserted into the appropriate segregated free list. A NULL
- * pointer is ignored to match standard free behavior.
- */
+// Frees a block and returns it to the segregated free lists
 void free(void *ptr){
     size_t size;
     if (ptr == NULL){
@@ -474,15 +386,7 @@ void free(void *ptr){
     insert_free_block(ptr);
 }
 
-/*
- * realloc - Resizes an allocated block while preserving existing data.
- *
- * If the block is shrinking, it is split only when the remainder can form a
- * valid free block. If the block is growing, the allocator first tries to merge
- * with the next physical block when that neighbor is free. This avoids an
- * unnecessary malloc/copy/free sequence. If in-place growth is not possible, a
- * new block is allocated, the old payload is copied, and the old block is freed.
- */
+// Resizes a block while preserving its existing payload data
 void *realloc(void *oldptr, size_t size){
     void *newptr;
     void *next_block;
@@ -541,17 +445,11 @@ void *realloc(void *oldptr, size_t size){
     return newptr;
 }
 
-/*
- * calloc - Allocates and zero-initializes an array.
- *
- * The multiplication check prevents size_t overflow when computing the total
- * number of bytes. After allocating with malloc, the payload is initialized to
- * zero to match standard calloc behavior.
- */
+// Allocates zero-initialized memory for an array
 void *calloc(size_t nmemb, size_t size) {
     size_t bytes;
     void *ptr;
-    if (nmemb != 0 && size > SIZE_MAX / nmemb) {
+    if (nmemb != 0 && size > SIZE_MAX / nmemb) { // Prevent size_t overflow
         return NULL;
     }
     bytes = nmemb * size;
@@ -570,17 +468,7 @@ static bool in_heap(const void* p){
     return p >= mm_heap_lo() && p <= mm_heap_hi();
 }
 
-/*
- * mm_checkheap - Checks heap and free-list consistency in debug mode.
- *
- * The checker validates block alignment, heap boundaries, header/footer
- * agreement, prologue/epilogue correctness, absence of consecutive free
- * blocks, free-list pointer consistency, correct size-class placement, and
- * agreement between the number of free blocks in the heap and in the free
- * lists.
- *
- * The line number helps identify which call site detected the invalid heap.
- */
+// Checks heap and free-list consistency during debugging
 bool mm_checkheap(int line_number){
 #ifdef DEBUG
     void *blockp = heap_listp;
