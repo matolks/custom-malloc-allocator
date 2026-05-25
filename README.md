@@ -12,7 +12,7 @@ This allocator manages heap memory manually using block metadata and segregated 
 [ Header ][ Payload ][ Footer ]
 ```
 
-Free blocks reuse their payload area to store free-list pointers.
+Free blocks reuse their payload area to store free list pointers.
 
 ```text
 [ Header ][ Prev Free Ptr ][ Next Free Ptr ][ Free Space ][ Footer ]
@@ -25,7 +25,7 @@ The heap also uses prologue and epilogue blocks to simplify boundary cases durin
 ## Allocation Strategy
 
 - Segregated explicit free lists organize free blocks by size class
-- Best-fit search is used within size classes
+- Best fit search is used within size classes
 - Larger free blocks are split when the remainder can form a valid block
 - Adjacent free blocks are coalesced to reduce fragmentation
 - The heap extends when no existing free block can satisfy a request
@@ -70,7 +70,7 @@ Allocates space for an array and initializes the payload to zero. Includes an ov
 ## Heap Checker
 
 ### `mm_checkheap(int line_number)`
-Checks heap and free-list consistency during debugging. It validates alignment, heap bounds, header/footer agreement, coalescing, free-list links, size class placement, and free-block counts.
+Checks heap and free list consistency during debugging. It validates alignment, heap bounds, header/footer agreement, coalescing, free list links, size class placement, and free block counts.
 
 ## Core Helper Functions
 
@@ -92,7 +92,7 @@ Writes the header and footer for a block.
 ## Free List Helper Functions
 
 ### `class_index(size)`
-Maps a block size to the correct segregated free-list class.
+Maps a block size to the correct segregated free list class.
 
 ### `insert_free_block(blockp)`
 Inserts a free block into its size class free list.
@@ -101,10 +101,10 @@ Inserts a free block into its size class free list.
 Removes a free block from its size class free list.
 
 ### `next_freep(blockp)` / `prev_freep(blockp)`
-Read the next and previous free-block pointers stored in a free block’s payload.
+Read the next and previous free block pointers stored in a free block’s payload.
 
 ### `set_next_freep(blockp, next)` / `set_prev_freep(blockp, prev)`
-Write the next and previous free-block pointers inside a free block’s payload.
+Write the next and previous free block pointers inside a free block’s payload.
 
 ## Utility Helper Functions
 
